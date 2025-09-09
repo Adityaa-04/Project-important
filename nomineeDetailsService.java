@@ -1,10 +1,13 @@
+package com.loanorigination.service;
+
+import com.loanorigination.entity.LoanApplication;
 import com.loanorigination.entity.NomineeDetails;
 import com.loanorigination.repository.NomineeDetailsRepository;
 import jakarta.persistence.EntityManager;
-import jakarta.transaction.Transactional;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -12,46 +15,54 @@ import java.util.Optional;
 public class NomineeDetailsService {
 
     private final NomineeDetailsRepository nomineeRepo;
-    private final EntityManager em;
 
-    public NomineeDetailsService(NomineeDetailsRepository nomineeRepo, EntityManager em) {
+    @PersistenceContext
+    private EntityManager em;
+
+    public NomineeDetailsService(NomineeDetailsRepository nomineeRepo) {
         this.nomineeRepo = nomineeRepo;
-        this.em = em;
     }
 
-    // READ all
-    public List<NomineeDetails> getAllByApplicationId(Long applicationId) {
+    public Optional<NomineeDetails> getByApplicationId(Long applicationId) {
         return nomineeRepo.findByApplicationId(applicationId);
     }
 
-    // READ one
-    public Optional<NomineeDetails> getOne(Long applicationId, Long nomineeId) {
-        return nomineeRepo.findByIdAndApplicationId(nomineeId, applicationId);
-    }
+    /**
+     * Create or update the nominee row for the given applicationId.
+     * Uses em.getReference(LoanApplication.class, applicationId) to set the FK.
+     *
+     * If the NomineeDetails row does not exist, this creates a new entity and
+     * (if nomineeId is null) sets nomineeId = applicationId — this preserves the
+     * 1:1 mapping used in your project.
+     */
+    public NomineeDetails upsertNominee(Long applicationId, NomineeDetails req) {
+        // avoid loading full LoanApplication; get a reference for FK
+        LoanApplication appRef = em.getReference(LoanApplication.class, applicationId);
 
-    // CREATE
-    public NomineeDetails createNominee(Long applicationId, NomineeDetails nominee) {
-        nominee.setApplicationId(applicationId); // make sure entity has field `applicationId`
+        NomineeDetails nominee = nomineeRepo.findByApplicationId(applicationId).orElseGet(NomineeDetails::new);
+
+        // If your entity doesn't auto-generate nomineeId, use applicationId as default PK for a simple 1:1 mapping
+        if (nominee.getNomineeId() == null) {
+            nominee.setNomineeId(applicationId);
+        }
+
+        nominee.setLoanApplication(appRef);
+        nominee.setNomineeName(req.getNomineeName());
+        nominee.setRelationship(req.getRelationship());
+        nominee.setNomineeDob(req.getNomineeDob());
+        nominee.setNomineeAddress(req.getNomineeAddress());
+        nominee.setNomineePhone(req.getNomineePhone());
+        nominee.setNomineeEmail(req.getNomineeEmail());
+        nominee.setNomineeAadhaar(req.getNomineeAadhaar());
+        nominee.setNomineePan(req.getNomineePan());
+
         return nomineeRepo.save(nominee);
     }
 
-    // UPDATE
-    public NomineeDetails updateNominee(Long applicationId, Long nomineeId, NomineeDetails nominee) {
-        NomineeDetails existing = nomineeRepo.findByIdAndApplicationId(nomineeId, applicationId)
-                .orElseThrow(() -> new RuntimeException("Nominee not found"));
-        existing.setNomineeName(nominee.getNomineeName());
-        existing.setRelationship(nominee.getRelationship());
-        existing.setNomineeDob(nominee.getNomineeDob());
-        existing.setNomineeAddress(nominee.getNomineeAddress());
-        existing.setNomineePhone(nominee.getNomineePhone());
-        existing.setNomineeEmail(nominee.getNomineeEmail());
-        existing.setNomineeAadhaar(nominee.getNomineeAadhaar());
-        existing.setNomineePan(nominee.getNomineePan());
-        return nomineeRepo.save(existing);
-    }
-
-    // DELETE
-    public void deleteNominee(Long applicationId, Long nomineeId) {
-        nomineeRepo.deleteByIdAndApplicationId(nomineeId, applicationId);
+    /**
+     * Delete nominee row for the application (if exists).
+     */
+    public void deleteByApplicationId(Long applicationId) {
+        nomineeRepo.findByApplicationId(applicationId).ifPresent(nomineeRepo::delete);
     }
 }
